@@ -2,7 +2,7 @@
 // @name         Tik Downloader
 // @namespace    http://tampermonkey.net/
 // @version      3.0.3
-// @description  Download TikTok videos without watermark. Features real-time progress bar, dynamic naming, and seamless UI integration.
+// @description  Download TikTok videos, photos, and all carousel images. Supports Safari fallback, progress, and numbered filenames.
 // @author       Face Off
 // @license      MIT
 // @match        https://*.tiktok.com/*

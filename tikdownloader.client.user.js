@@ -2,7 +2,7 @@
 // @name         Tik Downloader (Client)
 // @namespace    http://tampermonkey.net/
 // @version      1.0.1
-// @description  Client Loader for Tik Downloader. Handles OTA updates and injection.
+// @description  Client loader for TikTok video, photo, and carousel downloads. Updates the Safari-compatible fork.
 // @author       Face Off
 // @match        https://*.tiktok.com/*
 // @match        https://ofaceoff.github.io/Tiktok-Downloader/*

@@ -1,8 +1,12 @@
 # Tik Downloader
 
-Download TikTok videos without watermark and in HD quality directly from TikTok.
+Download TikTok videos, individual photos, and every image in photo carousels directly from TikTok. Videos support HD and no-watermark links when available.
 
-Tik Downloader is a modern UserScript that integrates directly into TikTok's interface, allowing you to download videos with a single click.
+Tik Downloader is a modern UserScript that integrates directly into TikTok's interface, allowing you to download videos and photo posts with a single click.
+
+> **Este fork baixa vídeos, fotos individuais e todas as imagens de carrosséis.** As fotos são salvas separadamente, em ordem e com nomes numerados.
+>
+> Use os links da branch `safari-tampermonkey-download-fallback` abaixo; a `main` ainda contém a versão original enquanto o PR estiver aberto.
 
 > **⭐ Recommended Installation:** `tikdownloader.client.user.js`
 >
@@ -23,6 +27,7 @@ Tik Downloader is a modern UserScript that integrates directly into TikTok's int
 ## ✨ Features
 
 - Download TikTok videos without watermark
+- Individual photos and every image in photo carousels (ordered, separate files)
 - HD video support
 - One-click download directly from TikTok
 - Real-time progress bar
@@ -117,6 +122,7 @@ Tik Downloader does not collect, store, or share personal information.
 ## ✨ Recursos
 
 - Download de vídeos sem marca d'água
+- Fotos individuais e todas as imagens de carrosséis (arquivos separados, em ordem)
 - Suporte a vídeos em HD
 - Download com apenas um clique
 - Barra de progresso em tempo real
