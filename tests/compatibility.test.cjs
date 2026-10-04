@@ -18,7 +18,7 @@ function harness(overrides = {}) {
     };
     const sandbox = { document, navigator: { language: 'en' }, window: { location: { href: 'https://www.tiktok.com/@creator/video/123' } },
         Blob, AbortController, console: { warn() {}, error() {} },
-        URL: { createObjectURL(b) { blobs.push(b); return 'blob:test'; }, revokeObjectURL(u) { revoked.push(u); } },
+        URL: class extends URL { static createObjectURL(b) { blobs.push(b); return 'blob:test'; } static revokeObjectURL(u) { revoked.push(u); } },
         setTimeout(fn, ms) { const t = { fn, ms, cleared: false }; timers.push(t); return t; },
         clearTimeout(t) { if (t) t.cleared = true; }, requestAnimationFrame(fn) { fn(); }, ...overrides };
     const context = vm.createContext(sandbox);
@@ -89,4 +89,42 @@ test('client starts remote code even if cache read/write fail', async () => {
         GM_xmlhttpRequest(d) { request = d; }, GM_download() { ran++; } });
     vm.runInContext(client, h.context); await new Promise(setImmediate);
     await request.onload({ status: 200, responseText: '// @version 3.0.2\nGM_download();' }); assert.equal(ran, 1);
+});
+test('photo carousel saves ordered images with image MIME and names, never slideshow MP4', async () => {
+    const calls = [];
+    const h = harness({ GM_xmlhttpRequest(d) {
+        if (d.method === 'POST') return d.onload({ responseText: JSON.stringify({ code: 0, data: {
+            images: ['https://cdn.test/one.jpeg?token=x', 'https://cdn.test/two.webp'], play: 'https://cdn.test/slideshow.mp4' } }) });
+        calls.push(d.url); xhrOk(d);
+    } });
+    h.context.window.location.href = 'https://www.tiktok.com/@crisoliver_gomes/photo/7690313712917384455';
+    vm.runInContext(core, h.context); h.elements.find(e => e.tag === 'button').listeners.click();
+    await new Promise(setImmediate);
+    assert.deepEqual(calls, ['https://cdn.test/one.jpeg?token=x', 'https://cdn.test/two.webp']);
+    assert.deepEqual(h.clicked.map(e => e.download), ['tiktok_crisoliver_gomes_7690313712917384455_01.jpeg', 'tiktok_crisoliver_gomes_7690313712917384455_02.webp']);
+    assert.deepEqual(h.blobs.map(b => b.type), ['image/jpeg', 'image/webp']);
+});
+test('photo post with no images reports missing media and does not save MP4', async () => {
+    const h = harness({ GM_xmlhttpRequest(d) { d.onload({ responseText: JSON.stringify({ code: 0, data: { play: 'https://cdn.test/slideshow.mp4' } }) }); } });
+    h.context.window.location.href = 'https://www.tiktok.com/@creator/photo/123';
+    vm.runInContext(core, h.context); h.elements.find(e => e.tag === 'button').listeners.click();
+    await new Promise(setImmediate); assert.equal(h.clicked.length, 0);
+    assert.ok(h.elements.some(e => e.innerText === 'Link not found.'));
+});
+test('carousel failure stops remaining downloads and reports error', async () => {
+    let requests = 0;
+    const h = harness({ GM_xmlhttpRequest(d) {
+        if (d.method === 'POST') return d.onload({ responseText: JSON.stringify({ code: 0, data: { images: ['https://cdn.test/1.jpg','https://cdn.test/2.jpg','https://cdn.test/3.jpg'] } }) });
+        requests++; if (requests === 2) d.onerror(); else xhrOk(d);
+    } });
+    h.context.window.location.href = 'https://www.tiktok.com/@creator/photo/123';
+    vm.runInContext(core, h.context); h.elements.find(e => e.tag === 'button').listeners.click();
+    await new Promise(setImmediate); assert.equal(requests, 2); assert.equal(h.clicked.length, 1);
+    assert.ok(h.elements.some(e => e.innerText === 'Download blocked!'));
+});
+test('non-post URL does not call API', () => {
+    const h = harness({ GM_xmlhttpRequest() { assert.fail(); } });
+    h.context.window.location.href = 'https://www.tiktok.com/@creator';
+    vm.runInContext(core, h.context); h.elements.find(e => e.tag === 'button').listeners.click();
+    assert.equal(h.clicked.length, 0);
 });

@@ -197,3 +197,19 @@ O Tik Downloader não coleta, armazena ou compartilha informações pessoais.
 **Face Off**
 
 https://github.com/OFaceOff/Tiktok-Downloader
+
+## Photo posts / Publicações de fotos
+
+Version 3.0.3 accepts `/photo/` posts as well as `/video/` posts. TikWM's
+`data.images` array is downloaded sequentially in carousel order, with filenames
+like `tiktok_creator_postid_01.jpg`, `_02.jpg`, etc. Image URL extensions are
+preserved when available; otherwise JPEG is assumed. No MP4 is synthesized from
+a carousel, and soundtrack audio is not downloaded. If TikWM cannot extract the
+images, the UI reports that no media link was found.
+
+A versão 3.0.3 baixa as imagens de publicações `/photo/` em ordem, com nomes
+numerados e progresso por imagem. Vídeos continuam sendo baixados em MP4.
+Permita múltiplos downloads no navegador se solicitado. O loader busca a versão
+nova automaticamente; se já estiver aberto, recarregue após a atualização do cache.
+O suporte depende de o TikWM retornar as imagens; testes reais com o post indicado
+e Safari/Tampermonkey ainda são necessários.

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Tik Downloader
 // @namespace    http://tampermonkey.net/
-// @version      3.0.2
+// @version      3.0.3
 // @description  Download TikTok videos without watermark. Features real-time progress bar, dynamic naming, and seamless UI integration.
 // @author       Face Off
 // @license      MIT
@@ -21,13 +21,13 @@
     const isPt = (navigator.language || navigator.userLanguage).toLowerCase().startsWith('pt');
 
     const i18n = {
-        tooltip: isPt ? "Baixar Vídeo Sem Marca d'Água" : "Download Video Without Watermark",
+        tooltip: isPt ? "Baixar Post Sem Marca d'Água" : "Download Post Without Watermark",
         processing: isPt ? "Processando..." : "Processing...",
         extracting: isPt ? "Extraindo link..." : "Extracting link...",
         starting: isPt ? "Iniciando download..." : "Starting download...",
         downloading: isPt ? "Baixando..." : "Downloading...",
         success: isPt ? "Concluído!" : "Success!",
-        errVideo: isPt ? "Abra um vídeo específico!" : "Open a specific video!",
+        errVideo: isPt ? "Abra um vídeo ou publicação de fotos!" : "Open a video or photo post!",
         errBlocked: isPt ? "Download bloqueado!" : "Download blocked!",
         errNotFound: isPt ? "Link não encontrado." : "Link not found.",
         errRead: isPt ? "Erro de leitura." : "API read error.",
@@ -164,7 +164,7 @@
 
     // Keep GM_download as the first choice on Chrome/Firefox. Safari managers
     // may expose it but reject downloads, so errors must fall back to bytes.
-    const downloadMedia = async (url, name, onprogress) => {
+    const downloadMedia = async (url, name, onprogress, mimeType = 'video/mp4') => {
         if (typeof GM_download === 'function') {
             try {
                 await new Promise((resolve, reject) => {
@@ -231,7 +231,7 @@
                             reject(new Error('Empty media response'));
                             return;
                         }
-                        resolve(new Blob([bytes], { type: 'video/mp4' }));
+                        resolve(new Blob([bytes], { type: mimeType }));
                     },
                     onerror: () => reject(new Error('Media request failed')),
                     ontimeout: () => reject(new Error('Media request timed out')),
@@ -247,7 +247,7 @@
                 if (!response.ok) throw new Error(`Media HTTP ${response.status}`);
                 const bytes = await response.arrayBuffer();
                 if (!bytes.byteLength) throw new Error('Empty media response');
-                blob = new Blob([bytes], { type: 'video/mp4' });
+                blob = new Blob([bytes], { type: mimeType });
             } finally {
                 clearTimeout(timer);
             }
@@ -273,18 +273,13 @@
     btn.addEventListener('click', () => {
         const videoUrl = window.location.href;
 
-        if (!videoUrl.includes('/video/')) {
+        const match = new URL(videoUrl).pathname.match(/^\/@([^/]+)\/(video|photo)\/(\d+)\/?$/);
+        if (!match) {
             showError(i18n.errVideo);
             return;
         }
-
-        let fileName = 'tiktok_video.mp4';
-        const regex = /@([^/]+)\/video\/(\d+)/;
-        const match = videoUrl.match(regex);
-
-        if (match && match.length === 3) {
-            fileName = `tiktok_${match[1]}_${match[2]}.mp4`;
-        }
+        const fileBase = `tiktok_${match[1]}_${match[3]}`;
+        const isPhoto = match[2] === 'photo';
 
         btn.innerHTML = icons.loading;
         btn.disabled = true;
@@ -309,31 +304,46 @@
                         return;
                     }
 
-                    const downloadUrl = res.data.hdplay || res.data.play;
-
-                    if (downloadUrl) {
-                        updateUI(i18n.starting, 20);
-
-                        try {
-                            await downloadMedia(downloadUrl, fileName, (e) => {
-                                if (e.total > 0) {
-                                    const percent = 20 + Math.floor((e.loaded / e.total) * 79);
-                                    updateUI(`${i18n.downloading} ${Math.floor((e.loaded / e.total) * 100)}%`, percent);
-                                } else {
-                                    const mbLoaded = (e.loaded / (1024 * 1024)).toFixed(1);
-                                    updateUI(`${i18n.downloading} ${mbLoaded}MB`, 50);
-                                }
-                            });
-                            btn.innerHTML = icons.success;
-                            btn.style.backgroundColor = '#00c851';
-                            updateUI(i18n.success, 100, '#00c851');
-                            setTimeout(resetButton, 3500);
-                        } catch (error) {
-                            console.error('[TikDownloader] Download failed:', error);
-                            showError(i18n.errBlocked);
-                        }
-                    } else {
+                    const data = res.data || {};
+                    const images = Array.isArray(data.images) ? data.images : [];
+                    const media = images.length ? images.map((url, index) => {
+                        // TikWM returns ordered image URLs. Infer common image
+                        // extensions from the pathname, never the signed query.
+                        const extension = new URL(url).pathname.match(/\.(jpe?g|png|webp|avif)$/i);
+                        const ext = extension ? extension[1].toLowerCase() : 'jpg';
+                        const type = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
+                            webp: 'image/webp', avif: 'image/avif' }[ext];
+                        return { url, name: `${fileBase}_${String(index + 1).padStart(2, '0')}.${ext}`, type };
+                    }) : !isPhoto && (data.hdplay || data.play)
+                        ? [{ url: data.hdplay || data.play, name: `${fileBase}.mp4`, type: 'video/mp4' }]
+                        : [];
+                    if (!media.length) {
                         showError(i18n.errNotFound);
+                        return;
+                    }
+                    updateUI(i18n.starting, 20);
+                    try {
+                        // Sequential downloads preserve carousel order and avoid
+                        // fetching every full-size photo into memory at once.
+                        for (let index = 0; index < media.length; index++) {
+                            const item = media[index];
+                            const label = media.length > 1 ? ` ${index + 1}/${media.length}` : '';
+                            updateUI(`${i18n.downloading}${label}`, 20 + Math.floor(index / media.length * 79));
+                            await downloadMedia(item.url, item.name, (e) => {
+                                const fraction = e.total > 0 ? Math.min(e.loaded / e.total, 1) : 0;
+                                const percent = 20 + Math.floor((index + fraction) / media.length * 79);
+                                const detail = e.total > 0 ? `${Math.floor(fraction * 100)}%`
+                                    : `${(e.loaded / (1024 * 1024)).toFixed(1)}MB`;
+                                updateUI(`${i18n.downloading}${label} ${detail}`, percent);
+                            }, item.type);
+                        }
+                        btn.innerHTML = icons.success;
+                        btn.style.backgroundColor = '#00c851';
+                        updateUI(i18n.success, 100, '#00c851');
+                        setTimeout(resetButton, 3500);
+                    } catch (error) {
+                        console.error('[TikDownloader] Download failed:', error);
+                        showError(i18n.errBlocked);
                     }
                 } catch (e) {
                     showError(i18n.errRead);
