@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Tik Downloader (Client)
 // @namespace    http://tampermonkey.net/
-// @version      1.0.0
+// @version      1.0.1
 // @description  Client Loader for Tik Downloader. Handles OTA updates and injection.
 // @author       Face Off
 // @match        https://*.tiktok.com/*
@@ -13,15 +13,16 @@
 // @grant        GM_download
 // @connect      raw.githubusercontent.com
 // @connect      www.tikwm.com
+// @connect      *
 // ==/UserScript==
 
 (function () {
     'use strict';
 
     const CONFIG = {
-        REPO_URL: 'https://raw.githubusercontent.com/OFaceOff/Tiktok-Downloader/main/tikdownloader.user.js',
-        CACHE_VER_KEY: 'tikDownloader_version',
-        CACHE_CODE_KEY: 'tikDownloader_code'
+        REPO_URL: 'https://raw.githubusercontent.com/mooshmassacre/Tiktok-Downloader/safari-tampermonkey-download-fallback/tikdownloader.user.js',
+        CACHE_VER_KEY: 'tikDownloader_safari_version',
+        CACHE_CODE_KEY: 'tikDownloader_safari_code'
     };
 
     const isPt = (navigator.language || navigator.userLanguage).toLowerCase().startsWith('pt');
@@ -104,22 +105,34 @@
 
     const executeScript = (code) => {
         try {
+            // Direct evaluation stays in the userscript sandbox. Injecting a
+            // page <script> would lose GM APIs and may be blocked by page CSP.
             eval(code);
+            return true;
         } catch (err) {
             console.error('[TikDownloader] Core execution failed:', err);
+            return false;
         }
     };
 
-    const init = () => {
-        const localVer = GM_getValue(CONFIG.CACHE_VER_KEY, '0.0.0');
-        const localCode = GM_getValue(CONFIG.CACHE_CODE_KEY, '');
+    const init = async () => {
+        let localVer = '0.0.0';
+        let localCode = '';
+        try {
+            // await accepts synchronous values as well as manager Promises.
+            localVer = await GM_getValue(CONFIG.CACHE_VER_KEY, '0.0.0');
+            localCode = await GM_getValue(CONFIG.CACHE_CODE_KEY, '');
+        } catch (err) {
+            console.warn('[TikDownloader] Cache unavailable:', err);
+        }
 
-        if (localCode) executeScript(localCode);
+        const running = typeof localCode === 'string' && localCode && executeScript(localCode);
 
         GM_xmlhttpRequest({
             method: 'GET',
             url: `${CONFIG.REPO_URL}?t=${Date.now()}`,
-            onload: (res) => {
+            timeout: 30000,
+            onload: async (res) => {
                 if (res.status !== 200) return;
 
                 const code = res.responseText;
@@ -129,16 +142,19 @@
 
                 const remoteVer = versionMatch[1];
 
-                if (remoteVer !== localVer) {
-                    GM_setValue(CONFIG.CACHE_VER_KEY, remoteVer);
-                    GM_setValue(CONFIG.CACHE_CODE_KEY, code);
-
-                    if (!localCode) executeScript(code);
-
-                    showToast(remoteVer);
+                if (!running) executeScript(code);
+                if (remoteVer !== localVer || !running) {
+                    try {
+                        await GM_setValue(CONFIG.CACHE_CODE_KEY, code);
+                        await GM_setValue(CONFIG.CACHE_VER_KEY, remoteVer);
+                    } catch (err) {
+                        console.warn('[TikDownloader] Cache write failed:', err);
+                    }
+                    if (remoteVer !== localVer) showToast(remoteVer);
                 }
             },
-            onerror: (err) => console.error('[TikDownloader] Update check failed:', err)
+            onerror: (err) => console.error('[TikDownloader] Update check failed:', err),
+            ontimeout: () => console.error('[TikDownloader] Update check timed out')
         });
     };
 

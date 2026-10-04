@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Tik Downloader
 // @namespace    http://tampermonkey.net/
-// @version      3.0.1
+// @version      3.0.2
 // @description  Download TikTok videos without watermark. Features real-time progress bar, dynamic naming, and seamless UI integration.
 // @author       Face Off
 // @license      MIT
@@ -11,6 +11,7 @@
 // @grant        GM_xmlhttpRequest
 // @grant        GM_download
 // @connect      www.tikwm.com
+// @connect      *
 // ==/UserScript==
 
 (function () {
@@ -161,6 +162,112 @@
         setTimeout(resetButton, 4000);
     };
 
+    // Keep GM_download as the first choice on Chrome/Firefox. Safari managers
+    // may expose it but reject downloads, so errors must fall back to bytes.
+    const downloadMedia = async (url, name, onprogress) => {
+        if (typeof GM_download === 'function') {
+            try {
+                await new Promise((resolve, reject) => {
+                    let settled = false;
+                    let request;
+                    let timer;
+                    const finish = (callback, value) => {
+                        if (settled) return;
+                        settled = true;
+                        clearTimeout(timer);
+                        callback(value);
+                    };
+                    const armTimer = () => {
+                        clearTimeout(timer);
+                        timer = setTimeout(() => {
+                            finish(reject, new Error('Download stalled'));
+                            if (request && typeof request.abort === 'function') {
+                                try { request.abort(); } catch (error) {
+                                    console.warn('[TikDownloader] Download abort failed:', error);
+                                }
+                            }
+                        }, 120000);
+                    };
+                    armTimer();
+                    try {
+                        request = GM_download({
+                            url, name, timeout: 120000,
+                            onprogress: (event) => {
+                                if (!settled) { armTimer(); onprogress(event); }
+                            },
+                            onload: () => finish(resolve),
+                            onerror: (error) => finish(reject, error),
+                            ontimeout: () => finish(reject, new Error('Download timed out'))
+                        });
+                        // Some managers return a Promise instead of only callbacks.
+                        if (request && typeof request.then === 'function') {
+                            request.then(() => finish(resolve), (error) => finish(reject, error));
+                        }
+                    } catch (error) {
+                        finish(reject, error);
+                    }
+                });
+                return;
+            } catch (error) {
+                console.warn('[TikDownloader] GM_download failed; using binary fallback:', error);
+            }
+        }
+
+        let blob;
+        if (typeof GM_xmlhttpRequest === 'function') {
+            // Extension requests can access cross-origin media where page fetch
+            // is blocked by Safari CORS. Do not silently retry denied permissions.
+            blob = await new Promise((resolve, reject) => {
+                GM_xmlhttpRequest({
+                    method: 'GET', url, responseType: 'arraybuffer',
+                    timeout: 120000, onprogress,
+                    onload: (response) => {
+                        if (response.status < 200 || response.status >= 300) {
+                            reject(new Error(`Media HTTP ${response.status}`));
+                            return;
+                        }
+                        const bytes = response.response;
+                        if (!bytes || !bytes.byteLength) {
+                            reject(new Error('Empty media response'));
+                            return;
+                        }
+                        resolve(new Blob([bytes], { type: 'video/mp4' }));
+                    },
+                    onerror: () => reject(new Error('Media request failed')),
+                    ontimeout: () => reject(new Error('Media request timed out')),
+                    onabort: () => reject(new Error('Media request aborted'))
+                });
+            });
+        } else {
+            // Last resort only: fetch requires the media server to allow CORS.
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 120000);
+            try {
+                const response = await fetch(url, { signal: controller.signal });
+                if (!response.ok) throw new Error(`Media HTTP ${response.status}`);
+                const bytes = await response.arrayBuffer();
+                if (!bytes.byteLength) throw new Error('Empty media response');
+                blob = new Blob([bytes], { type: 'video/mp4' });
+            } finally {
+                clearTimeout(timer);
+            }
+        }
+
+        const blobUrl = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = blobUrl;
+        anchor.download = name;
+        anchor.style.display = 'none';
+        try {
+            document.body.appendChild(anchor);
+            anchor.click();
+        } finally {
+            anchor.remove();
+            // WebKit needs time to consume the URL before it is revoked.
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+        }
+    };
+
     // --- Core Logic ---
 
     btn.addEventListener('click', () => {
@@ -192,7 +299,7 @@
                 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
             },
             data: 'url=' + encodeURIComponent(videoUrl) + '&hd=1',
-            onload: function (response) {
+            onload: async function (response) {
                 try {
                     const res = JSON.parse(response.responseText);
 
@@ -207,10 +314,8 @@
                     if (downloadUrl) {
                         updateUI(i18n.starting, 20);
 
-                        GM_download({
-                            url: downloadUrl,
-                            name: fileName,
-                            onprogress: function (e) {
+                        try {
+                            await downloadMedia(downloadUrl, fileName, (e) => {
                                 if (e.total > 0) {
                                     const percent = 20 + Math.floor((e.loaded / e.total) * 79);
                                     updateUI(`${i18n.downloading} ${Math.floor((e.loaded / e.total) * 100)}%`, percent);
@@ -218,18 +323,15 @@
                                     const mbLoaded = (e.loaded / (1024 * 1024)).toFixed(1);
                                     updateUI(`${i18n.downloading} ${mbLoaded}MB`, 50);
                                 }
-                            },
-                            onload: () => {
-                                btn.innerHTML = icons.success;
-                                btn.style.backgroundColor = '#00c851';
-                                updateUI(i18n.success, 100, '#00c851');
-                                setTimeout(resetButton, 3500);
-                            },
-                            onerror: (err) => {
-                                console.error(err);
-                                showError(i18n.errBlocked);
-                            }
-                        });
+                            });
+                            btn.innerHTML = icons.success;
+                            btn.style.backgroundColor = '#00c851';
+                            updateUI(i18n.success, 100, '#00c851');
+                            setTimeout(resetButton, 3500);
+                        } catch (error) {
+                            console.error('[TikDownloader] Download failed:', error);
+                            showError(i18n.errBlocked);
+                        }
                     } else {
                         showError(i18n.errNotFound);
                     }

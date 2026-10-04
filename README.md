@@ -64,6 +64,44 @@ Tik Downloader is a modern UserScript that integrates directly into TikTok's int
 4. Open a video page.
 5. Click the Tik Downloader button.
 
+## Safari / Tampermonkey
+
+Install Tampermonkey from its official Safari listing, enable it in Safari Extensions,
+and allow access to TikTok. Install **only one** of these scripts from this fork's
+`safari-tampermonkey-download-fallback` branch:
+
+- [Standalone](https://raw.githubusercontent.com/mooshmassacre/Tiktok-Downloader/safari-tampermonkey-download-fallback/tikdownloader.user.js)
+- [Client loader](https://raw.githubusercontent.com/mooshmassacre/Tiktok-Downloader/safari-tampermonkey-download-fallback/tikdownloader.client.user.js)
+
+Chrome/Firefox continue to try `GM_download` first. If it is missing, throws,
+rejects, reports an error or times out, the script requests the video bytes with
+`GM_xmlhttpRequest`, then clicks a temporary Blob URL with the original `.mp4`
+filename. The URL is revoked after 60 seconds so WebKit can consume it.
+If the extension request API is unavailable, the binary fallback uses `fetch`;
+this last resort requires the media server to permit CORS. It cannot bypass CORS.
+
+Both scripts retain their existing grants. `@connect *` is necessary because
+TikWM can return or redirect to media hosts outside `www.tikwm.com`; approve only
+the actual media host when Tampermonkey asks. The loader stays in the userscript
+sandbox (no page script injection), supports synchronous or Promise cache APIs,
+and uses a separate cache and this fork branch so upstream code cannot overwrite
+the Safari fix. Disable the old client before installing this version.
+
+The Blob fallback buffers the whole video in memory. Success means the browser
+was asked to save it, not that the save dialog or disk write completed. Allow
+downloads for TikTok in Safari if prompted. Real Safari/Tampermonkey and live
+TikTok/CDN behavior still need a manual smoke test; automated tests mock the
+manager APIs and DOM and do not prove browser compatibility.
+
+### Validation
+
+Run `node --test tests/*.test.cjs` and `node --check tikdownloader.user.js` plus
+`node --check tikdownloader.client.user.js`. For a browser smoke test, download a
+public video in Safari, then Chrome/Firefox; verify filename, playable MP4,
+progress/error UI, repeat downloads, and cached loader after reload/offline.
+Disable Tampermonkey's download API to exercise the fallback and test a denied
+media-host permission to verify errors do not report success.
+
 ## 🔄 Automatic Updates
 
 The Client version automatically checks GitHub for new releases, downloads updates, stores them locally, and keeps the downloader up to date.
@@ -119,6 +157,30 @@ Tik Downloader does not collect, store, or share personal information.
 3. Acesse o TikTok.
 4. Abra um vídeo.
 5. Clique no botão do Tik Downloader.
+
+## Safari / Tampermonkey
+
+Instale o Tampermonkey pela loja oficial do Safari, habilite a extensão e permita
+acesso ao TikTok. Use somente um dos scripts da branch
+`safari-tampermonkey-download-fallback` deste fork: os links de instalação estão
+na seção em inglês acima. Desative o Client antigo antes de instalar o novo.
+
+Chrome/Firefox continuam tentando `GM_download` primeiro. Quando ele não existe
+ou falha, o script obtém os bytes por `GM_xmlhttpRequest`, cria um Blob URL e
+aciona `<a download>` mantendo o nome `.mp4`. O URL é revogado após 60 segundos.
+`fetch` é usado somente quando a API de requisição da extensão não existe e ainda
+depende de CORS. `@connect *` permite os hosts variáveis e redirecionamentos da
+mídia retornada pelo TikWM; autorize o host solicitado pelo Tampermonkey.
+
+O loader mantém as APIs GM no sandbox, aceita cache síncrono ou assíncrono e
+busca esta branch do fork, com cache separado. O fallback mantém todo o vídeo
+na memória; “Concluído” indica que o pedido de salvar foi disparado, sem confirmar
+a gravação no disco. Permita downloads no Safari quando solicitado.
+
+Os testes automatizados simulam APIs e DOM. A validação real no Safari/Tampermonkey
+com TikTok/CDN permanece necessária: confira MP4 reproduzível, nome, progresso,
+erros, downloads repetidos e cache após recarregar/offline. Repita no Chrome/Firefox.
+Execute `node --test tests/*.test.cjs` para os testes locais.
 
 ## 🔄 Atualizações Automáticas
 
