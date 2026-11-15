@@ -156,3 +156,27 @@ test('relative TikWM media URLs resolve before download', async () => {
     vm.runInContext(core, h.context); h.elements.find(e => e.tag === 'button').listeners.click();
     await new Promise(setImmediate); assert.equal(h.clicked.length, 1);
 });
+
+test('TikWM browser transport recovers extension network failure exactly once', async () => {
+    let fetches = 0, saved = 0;
+    const h = harness({
+        GM_xmlhttpRequest(d) { d.onerror(); d.onerror(); },
+        fetch: async (url, options) => {
+            fetches++; assert.equal(options.credentials, 'omit');
+            return { status: 200, headers: { get: () => 'application/json' },
+                text: async () => JSON.stringify({code: 0, data: {play: 'https://cdn.test/video.mp4'}}) };
+        },
+        GM_download(d) { saved++; d.onload(); }
+    });
+    vm.runInContext(core, h.context); h.elements.find(e => e.tag === 'button').listeners.click();
+    await new Promise(setImmediate);
+    assert.equal(fetches, 1); assert.equal(saved, 1);
+});
+
+test('TikWM HTTP rejection does not invoke browser fallback', async () => {
+    const h = harness({GM_xmlhttpRequest(d) { d.onload({status: 429, responseText: ''}); },
+        fetch() { assert.fail('must not retry server rejection'); }});
+    vm.runInContext(core, h.context); h.elements.find(e => e.tag === 'button').listeners.click();
+    await new Promise(setImmediate);
+    assert.ok(h.elements.some(e => e.innerText === 'TikWM HTTP 429'));
+});
