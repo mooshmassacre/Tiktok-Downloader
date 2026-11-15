@@ -80,7 +80,7 @@ for (const asyncCache of [false, true]) test(`client cache APIs ${asyncCache ? '
     const h = harness({ GM_getValue(k, fallback) { const v = k.endsWith('code') ? cached : '3.0.2'; return asyncCache ? Promise.resolve(v) : v; },
         GM_setValue(k, v) { writes.push([k,v]); return asyncCache ? Promise.resolve() : undefined; }, GM_xmlhttpRequest(d) { request = d; } });
     vm.runInContext(client, h.context); await new Promise(setImmediate);
-    assert.match(request.url, /mooshmassacre\/Tiktok-Downloader\/safari-tampermonkey-download-fallback/);
+    assert.match(request.url, /mooshmassacre\/Tiktok-Downloader\/main/);
     await request.onload({ status: 200, responseText: cached }); assert.equal(writes.filter(([k]) => k === 'executed').length, 1);
 });
 test('client starts remote code even if cache read/write fail', async () => {
