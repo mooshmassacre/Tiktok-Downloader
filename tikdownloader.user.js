@@ -268,6 +268,45 @@
         }
     };
 
+    // TikWM permits CORS. Use a credential-free browser request only when
+    // the userscript transport fails; HTTP/API errors are never retried.
+    const requestTikWM = (options) => {
+        let settled = false;
+        let fallbackStarted = false;
+        const deliver = (callback, value) => {
+            if (settled) return;
+            settled = true;
+            callback(value);
+        };
+        const fallback = async () => {
+            if (settled || fallbackStarted) return;
+            fallbackStarted = true;
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 30000);
+            try {
+                const response = await fetch(options.url, {
+                    method: options.method, headers: options.headers,
+                    body: options.data, credentials: 'omit', signal: controller.signal
+                });
+                const responseText = await response.text();
+                deliver(options.onload, { status: response.status, responseText,
+                    responseHeaders: `content-type: ${response.headers.get('content-type') || ''}` });
+            } catch (error) {
+                console.error('[TikDownloader] Browser transport failed:', error);
+                deliver(error.name === 'AbortError' ? options.ontimeout : options.onerror);
+            } finally { clearTimeout(timer); }
+        };
+        try {
+            if (typeof GM_xmlhttpRequest !== 'function') { fallback(); return; }
+            const request = GM_xmlhttpRequest({ ...options,
+                onload: response => { if (!fallbackStarted) deliver(options.onload, response); },
+                onerror: fallback, ontimeout: fallback,
+                onabort: () => deliver(options.onabort)
+            });
+            if (request && typeof request.catch === 'function') request.catch(fallback);
+        } catch (error) { fallback(); }
+    };
+
     // --- Core Logic ---
 
     btn.addEventListener('click', () => {
@@ -287,7 +326,7 @@
         updateUI(i18n.extracting, 10);
 
         try {
-        GM_xmlhttpRequest({
+        requestTikWM({
             method: 'POST',
             timeout: 30000,
             url: 'https://www.tikwm.com/api/',
