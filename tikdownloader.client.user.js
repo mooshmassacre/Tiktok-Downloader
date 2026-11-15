@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Tik Downloader (Client)
 // @namespace    http://tampermonkey.net/
-// @version      1.0.1
+// @version      1.0.2
 // @description  Client loader for TikTok video, photo, and carousel downloads. Updates the Safari-compatible fork.
 // @author       Face Off
 // @match        https://*.tiktok.com/*
@@ -20,7 +20,7 @@
     'use strict';
 
     const CONFIG = {
-        REPO_URL: 'https://raw.githubusercontent.com/mooshmassacre/Tiktok-Downloader/safari-tampermonkey-download-fallback/tikdownloader.user.js',
+        REPO_URL: 'https://raw.githubusercontent.com/mooshmassacre/Tiktok-Downloader/main/tikdownloader.user.js',
         CACHE_VER_KEY: 'tikDownloader_safari_version',
         CACHE_CODE_KEY: 'tikDownloader_safari_code'
     };
