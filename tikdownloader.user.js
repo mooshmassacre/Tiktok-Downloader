@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Tik Downloader
 // @namespace    http://tampermonkey.net/
-// @version      3.0.3
+// @version      3.0.4
 // @description  Download TikTok videos, photos, and all carousel images. Supports Safari fallback, progress, and numbered filenames.
 // @author       Face Off
 // @license      MIT
@@ -268,6 +268,45 @@
         }
     };
 
+    // TikWM permits CORS. Use a credential-free browser request only when
+    // the userscript transport fails; HTTP/API errors are never retried.
+    const requestTikWM = (options) => {
+        let settled = false;
+        let fallbackStarted = false;
+        const deliver = (callback, value) => {
+            if (settled) return;
+            settled = true;
+            callback(value);
+        };
+        const fallback = async () => {
+            if (settled || fallbackStarted) return;
+            fallbackStarted = true;
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 30000);
+            try {
+                const response = await fetch(options.url, {
+                    method: options.method, headers: options.headers,
+                    body: options.data, credentials: 'omit', signal: controller.signal
+                });
+                const responseText = await response.text();
+                deliver(options.onload, { status: response.status, responseText,
+                    responseHeaders: `content-type: ${response.headers.get('content-type') || ''}` });
+            } catch (error) {
+                console.error('[TikDownloader] Browser transport failed:', error);
+                deliver(error.name === 'AbortError' ? options.ontimeout : options.onerror);
+            } finally { clearTimeout(timer); }
+        };
+        try {
+            if (typeof GM_xmlhttpRequest !== 'function') { fallback(); return; }
+            const request = GM_xmlhttpRequest({ ...options,
+                onload: response => { if (!fallbackStarted) deliver(options.onload, response); },
+                onerror: fallback, ontimeout: fallback,
+                onabort: () => deliver(options.onabort)
+            });
+            if (request && typeof request.catch === 'function') request.catch(fallback);
+        } catch (error) { fallback(); }
+    };
+
     // --- Core Logic ---
 
     btn.addEventListener('click', () => {
@@ -286,8 +325,10 @@
         btn.style.backgroundColor = '#333';
         updateUI(i18n.extracting, 10);
 
-        GM_xmlhttpRequest({
+        try {
+        requestTikWM({
             method: 'POST',
+            timeout: 30000,
             url: 'https://www.tikwm.com/api/',
             headers: {
                 'Accept': 'application/json',
@@ -296,10 +337,28 @@
             data: 'url=' + encodeURIComponent(videoUrl) + '&hd=1',
             onload: async function (response) {
                 try {
-                    const res = JSON.parse(response.responseText);
+                    const status = response.status;
+                    if (status < 200 || status >= 300 || !status) {
+                        console.error('[TikDownloader] TikWM HTTP status:', status);
+                        showError(`TikWM HTTP ${status || 0}`);
+                        return;
+                    }
+                    let res;
+                    const body = typeof response.responseText === 'string' ? response.responseText : response.response;
+                    try {
+                        res = typeof body === 'string' ? JSON.parse(body) : body;
+                    } catch (error) {
+                        console.error('[TikDownloader] TikWM returned invalid JSON', { status, contentType: (response.responseHeaders || '').match(/content-type:[^\r\n]*/i)?.[0], bodyLength: typeof body === 'string' ? body.length : 0 });
+                        showError('TikWM: invalid JSON');
+                        return;
+                    }
+                    if (!res || typeof res !== 'object' || Array.isArray(res)) {
+                        showError('TikWM: invalid response');
+                        return;
+                    }
 
                     if (res.code !== 0) {
-                        const msg = res.msg ? res.msg.substring(0, 25) : i18n.errFail;
+                        const msg = typeof res.msg === 'string' ? res.msg.slice(0, 80) : i18n.errFail;
                         showError(i18n.errPrefix + msg);
                         return;
                     }
@@ -309,13 +368,16 @@
                     const media = images.length ? images.map((url, index) => {
                         // TikWM returns ordered image URLs. Infer common image
                         // extensions from the pathname, never the signed query.
+                        if (typeof url !== 'string' || !url.trim()) throw new Error('Invalid image URL');
+                        url = new URL(url, 'https://www.tikwm.com/').href;
+                        if (!/^https?:/.test(url)) throw new Error('Invalid image URL protocol');
                         const extension = new URL(url).pathname.match(/\.(jpe?g|png|webp|avif)$/i);
                         const ext = extension ? extension[1].toLowerCase() : 'jpg';
                         const type = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png',
                             webp: 'image/webp', avif: 'image/avif' }[ext];
                         return { url, name: `${fileBase}_${String(index + 1).padStart(2, '0')}.${ext}`, type };
                     }) : !isPhoto && (data.hdplay || data.play)
-                        ? [{ url: data.hdplay || data.play, name: `${fileBase}.mp4`, type: 'video/mp4' }]
+                        ? [{ url: new URL(data.hdplay || data.play, 'https://www.tikwm.com/').href, name: `${fileBase}.mp4`, type: 'video/mp4' }]
                         : [];
                     if (!media.length) {
                         showError(i18n.errNotFound);
@@ -346,12 +408,17 @@
                         showError(i18n.errBlocked);
                     }
                 } catch (e) {
-                    showError(i18n.errRead);
+                    console.error('[TikDownloader] TikWM response processing failed:', e);
+                    showError('TikWM: invalid media data');
                 }
             },
-            onerror: function () {
-                showError(i18n.errOffline);
-            }
+            onerror: function () { showError('TikWM: network error'); },
+            ontimeout: function () { showError('TikWM: timeout'); },
+            onabort: function () { showError('TikWM: aborted'); }
         });
+        } catch (error) {
+            console.error('[TikDownloader] TikWM request failed:', error);
+            showError('TikWM: request failed');
+        }
     });
 })();
