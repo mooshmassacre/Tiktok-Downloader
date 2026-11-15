@@ -6,7 +6,7 @@ Tik Downloader is a modern UserScript that integrates directly into TikTok's int
 
 > **Este fork baixa vídeos, fotos individuais e todas as imagens de carrosséis.** As fotos são salvas separadamente, em ordem e com nomes numerados.
 >
-> Use os links da branch `safari-tampermonkey-download-fallback` abaixo; a `main` ainda contém a versão original enquanto o PR estiver aberto.
+> A correção Safari/TikWM está integrada à branch `main`.
 
 > **⭐ Recommended Installation:** `tikdownloader.client.user.js`
 >
@@ -76,10 +76,10 @@ Tik Downloader is a modern UserScript that integrates directly into TikTok's int
 
 Install Tampermonkey from its official Safari listing, enable it in Safari Extensions,
 and allow access to TikTok. Install **only one** of these scripts from this fork's
-`safari-tampermonkey-download-fallback` branch:
+`main` branch:
 
-- [Standalone](https://raw.githubusercontent.com/mooshmassacre/Tiktok-Downloader/safari-tampermonkey-download-fallback/tikdownloader.user.js)
-- [Client loader](https://raw.githubusercontent.com/mooshmassacre/Tiktok-Downloader/safari-tampermonkey-download-fallback/tikdownloader.client.user.js)
+- [Standalone](https://raw.githubusercontent.com/mooshmassacre/Tiktok-Downloader/main/tikdownloader.user.js)
+- [Client loader](https://raw.githubusercontent.com/mooshmassacre/Tiktok-Downloader/main/tikdownloader.client.user.js)
 
 Chrome/Firefox continue to try `GM_download` first. If it is missing, throws,
 rejects, reports an error or times out, the script requests the video or image bytes with
@@ -174,7 +174,7 @@ The script sends the post URL to TikWM to extract media links. The Client also r
 
 Instale o Tampermonkey pela loja oficial do Safari, habilite a extensão e permita
 acesso ao TikTok. Use somente um dos scripts da branch
-`safari-tampermonkey-download-fallback` deste fork: os links de instalação estão
+`main` deste fork: os links de instalação estão
 na seção em inglês acima. Desative o Client antigo antes de instalar o novo.
 
 Chrome/Firefox continuam tentando `GM_download` primeiro. Quando ele não existe
@@ -225,3 +225,7 @@ Permita múltiplos downloads no navegador se solicitado. O loader busca a versã
 nova automaticamente; se já estiver aberto, recarregue após a atualização do cache.
 O suporte depende de o TikWM retornar as imagens; testes reais com o post indicado
 e Safari/Tampermonkey ainda são necessários.
+
+## Validation update — 2026-11-15
+
+Version 3.0.4 adds a credential-free CORS request fallback for TikWM extension transport failures. 35 automated tests passed; live API tests downloaded MP4 and JPEG files. The user confirmed that the updated userscript worked in Safari. Broader browser and carousel coverage remains subject to the manual checks above.
