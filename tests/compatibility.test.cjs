@@ -69,7 +69,7 @@ test('fetch HTTP and CORS errors do not save', async () => {
     }
 });
 test('complete core uses extracted HD URL and dynamic filename', async () => {
-    const h = harness({ GM_xmlhttpRequest(d) { if (d.method === 'POST') return d.onload({ responseText: JSON.stringify({ code: 0, data: { hdplay: 'https://cdn.test/hd', play: 'https://cdn.test/sd' } }) }); assert.equal(d.url, 'https://cdn.test/hd'); xhrOk(d); } });
+    const h = harness({ GM_xmlhttpRequest(d) { if (d.method === 'POST') return d.onload({ status: 200, responseText: JSON.stringify({ code: 0, data: { hdplay: 'https://cdn.test/hd', play: 'https://cdn.test/sd' } }) }); assert.equal(d.url, 'https://cdn.test/hd'); xhrOk(d); } });
     vm.runInContext(core, h.context); const btn = h.elements.find(e => e.tag === 'button'); btn.listeners.click();
     await new Promise(setImmediate); assert.equal(h.clicked[0].download, 'tiktok_creator_123.mp4');
     assert.equal(btn.style.backgroundColor, '#00c851');
@@ -93,7 +93,7 @@ test('client starts remote code even if cache read/write fail', async () => {
 test('photo carousel saves ordered images with image MIME and names, never slideshow MP4', async () => {
     const calls = [];
     const h = harness({ GM_xmlhttpRequest(d) {
-        if (d.method === 'POST') return d.onload({ responseText: JSON.stringify({ code: 0, data: {
+        if (d.method === 'POST') return d.onload({ status: 200, responseText: JSON.stringify({ code: 0, data: {
             images: ['https://cdn.test/one.jpeg?token=x', 'https://cdn.test/two.webp'], play: 'https://cdn.test/slideshow.mp4' } }) });
         calls.push(d.url); xhrOk(d);
     } });
@@ -105,7 +105,7 @@ test('photo carousel saves ordered images with image MIME and names, never slide
     assert.deepEqual(h.blobs.map(b => b.type), ['image/jpeg', 'image/webp']);
 });
 test('photo post with no images reports missing media and does not save MP4', async () => {
-    const h = harness({ GM_xmlhttpRequest(d) { d.onload({ responseText: JSON.stringify({ code: 0, data: { play: 'https://cdn.test/slideshow.mp4' } }) }); } });
+    const h = harness({ GM_xmlhttpRequest(d) { d.onload({ status: 200, responseText: JSON.stringify({ code: 0, data: { play: 'https://cdn.test/slideshow.mp4' } }) }); } });
     h.context.window.location.href = 'https://www.tiktok.com/@creator/photo/123';
     vm.runInContext(core, h.context); h.elements.find(e => e.tag === 'button').listeners.click();
     await new Promise(setImmediate); assert.equal(h.clicked.length, 0);
@@ -114,7 +114,7 @@ test('photo post with no images reports missing media and does not save MP4', as
 test('carousel failure stops remaining downloads and reports error', async () => {
     let requests = 0;
     const h = harness({ GM_xmlhttpRequest(d) {
-        if (d.method === 'POST') return d.onload({ responseText: JSON.stringify({ code: 0, data: { images: ['https://cdn.test/1.jpg','https://cdn.test/2.jpg','https://cdn.test/3.jpg'] } }) });
+        if (d.method === 'POST') return d.onload({ status: 200, responseText: JSON.stringify({ code: 0, data: { images: ['https://cdn.test/1.jpg','https://cdn.test/2.jpg','https://cdn.test/3.jpg'] } }) });
         requests++; if (requests === 2) d.onerror(); else xhrOk(d);
     } });
     h.context.window.location.href = 'https://www.tiktok.com/@creator/photo/123';
@@ -127,4 +127,32 @@ test('non-post URL does not call API', () => {
     h.context.window.location.href = 'https://www.tiktok.com/@creator';
     vm.runInContext(core, h.context); h.elements.find(e => e.tag === 'button').listeners.click();
     assert.equal(h.clicked.length, 0);
+});
+
+for (const [label, response, expected] of [
+    ['HTTP rejection', {status: 403, responseText: '<html>blocked</html>'}, 'TikWM HTTP 403'],
+    ['invalid JSON', {status: 200, responseText: '<html>blocked</html>'}, 'TikWM: invalid JSON'],
+    ['empty response', {status: 200, responseText: ''}, 'TikWM: invalid JSON'],
+    ['invalid shape', {status: 200, responseText: 'null'}, 'TikWM: invalid response'],
+    ['malformed media', {status: 200, responseText: JSON.stringify({code: 0, data: {images: [null]}})}, 'TikWM: invalid media data'],
+    ['API failure', {status: 200, responseText: JSON.stringify({code: -1, msg: 123})}, 'Error: Processing failed']
+]) test(`TikWM ${label} is reported without a download`, async () => {
+    const h = harness({ GM_xmlhttpRequest(d) { d.onload(response); } });
+    vm.runInContext(core, h.context); h.elements.find(e => e.tag === 'button').listeners.click();
+    await new Promise(setImmediate);
+    assert.equal(h.clicked.length, 0); assert.ok(h.elements.some(e => e.innerText === expected));
+});
+for (const event of ['onerror', 'ontimeout', 'onabort']) test(`TikWM ${event} reports failure`, () => {
+    const h = harness({ GM_xmlhttpRequest(d) { d[event](); } });
+    vm.runInContext(core, h.context); h.elements.find(e => e.tag === 'button').listeners.click();
+    assert.ok(h.elements.some(e => typeof e.innerText === 'string' && e.innerText.startsWith('TikWM:')));
+});
+test('relative TikWM media URLs resolve before download', async () => {
+    const h = harness({ GM_xmlhttpRequest(d) {
+        if (d.method === 'POST') return d.onload({status: 200, responseText: JSON.stringify({code: 0, data: {images: ['/image/1.jpg']}})});
+        assert.equal(d.url, 'https://www.tikwm.com/image/1.jpg'); xhrOk(d);
+    }});
+    h.context.window.location.href = 'https://www.tiktok.com/@creator/photo/123';
+    vm.runInContext(core, h.context); h.elements.find(e => e.tag === 'button').listeners.click();
+    await new Promise(setImmediate); assert.equal(h.clicked.length, 1);
 });
